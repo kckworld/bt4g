@@ -1,0 +1,2 @@
+feedparser>=6.0.10
+feedgen>=0.9.0
