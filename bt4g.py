@@ -55,9 +55,13 @@ with open(keyword_file, "r", encoding="utf-8") as f:
     all_keywords = [line.strip() for line in f if line.strip()]
 
 # 현재 시간 기준 그룹 결정 (20분 단위: 0~19분=0, 20~39분=1, 40~59분=2)
+# group_size는 전체 키워드 개수에 맞춰 매번 계산한다. 예전엔 10으로 고정돼
+# 있어서 키워드가 30개를 넘으면 31번째부터는 어느 그룹에도 안 걸려 영원히
+# 검색되지 않았음(웹에서 키워드를 자유롭게 추가/삭제하게 되면서 실제로 발생 가능).
+import math
 now = datetime.now()
 slot = (now.minute // 20) % 3
-group_size = 10
+group_size = max(1, math.ceil(len(all_keywords) / 3)) if all_keywords else 0
 start = slot * group_size
 keywords = all_keywords[start:start + group_size]
 group_num = slot + 1
