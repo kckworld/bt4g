@@ -115,7 +115,15 @@ for entry in existing_entries:
 new_count = 0
 for keyword in keywords:
     url = base_url.format(quote(keyword))
-    feed = feedparser.parse(url)
+    # 연결 단계 타임아웃은 feedparser가 bozo로 삼키지만, 응답 읽는 도중의
+    # socket.timeout은 그대로 올라와 스크립트 전체가 죽고 RSS 저장도 안 됐음
+    # → 해당 키워드만 건너뛰고 계속 진행
+    try:
+        feed = feedparser.parse(url)
+    except (socket.timeout, OSError) as e:
+        log(f"keyword={keyword!r} 요청 실패, 건너뜀: {type(e).__name__}: {e}")
+        time.sleep(2)
+        continue
     count = len(feed.entries)
     if feed.bozo and count == 0:
         log(f"keyword={keyword!r} 요청/파싱 실패 가능성(bozo): {feed.get('bozo_exception')}")
