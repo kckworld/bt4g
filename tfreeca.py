@@ -5,8 +5,9 @@ BT4G는 DHT 검색이라 NEXT 릴이 방송 후 몇 시간 뒤에야 잡히고, 
 키워드와 맞는 글의 마그넷을 RSS로 만든다. qBittorrent 규칙이 이 RSS를 읽어 받는다.
 
 - 예능(b_id=tent): bt4g_keywords.txt, 720p-NEXT, 방송일 7일 이내 → "예능" 규칙
-- 드라마(b_id=tdrama): drama_keywords.txt, 1080p WEB-DL MrHulk·Marco(NF 원본,
-  dramaday와 같은 릴), 회차마다 하나만 → "드라마" 규칙
+- 드라마(b_id=tdrama): drama_keywords.txt, 회차마다 하나만 → "드라마" 규칙.
+  한 줄에 `키워드 | 릴` (예: `연애박사 | Sniper`, `닥터X | 720p-NEXT`, 릴 여러 개는 쉼표).
+  릴을 안 적으면 1080p WEB-DL MrHulk·Marco(NF 원본, dramaday와 같은 릴)
 - 영화(b_id=tmovie): 거르지 않고 전부 RSS로만 만든다 (자동 다운로드 규칙은 아직 없음).
   영화만 목록 주소가 mode=lists (mode=list는 빈 목록)
 
@@ -62,7 +63,8 @@ def fetch(url):
 
 
 def normalize(s):
-    return re.sub(r"\s+", "", s).lower()
+    # 띄어쓰기·기호 무시 (폴더 이름 "닥터X 하얀 마피아의 시대" = 글 제목 "닥터X - 하얀 마피아의 시대")
+    return re.sub(r"[\W_]+", "", s).lower()
 
 
 def load_keywords(path):
@@ -77,6 +79,21 @@ def load_keywords(path):
     except FileNotFoundError:
         return []
     return [normalize(w) for w in words if w.strip()]
+
+
+def load_drama_keywords(path):
+    """'키워드 | 릴1, 릴2' → [(키워드, [릴...])]. 릴이 없으면 빈 목록(기본 MrHulk·Marco)"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = [line.strip() for line in f if line.strip()]
+    except FileNotFoundError:
+        return []
+    out = []
+    for line in lines:
+        name, _, rel = line.partition("|")
+        if name.strip():
+            out.append((normalize(name), [r.strip().lower() for r in rel.split(",") if r.strip()]))
+    return out
 
 
 def matched_keyword(title, keywords):
@@ -100,10 +117,13 @@ def variety_release_ok(title):
     return True
 
 
-def drama_release_ok(title):
+def drama_release_ok(title, releases):
     t = title.lower()
-    return ("1080p" in t and "web-dl" in t and re.search(r"mrhulk|marco", t) is not None
-            and re.search(r"av1|x265|hevc|h\.?265", t) is None)
+    if re.search(r"av1|x265|hevc|h\.?265", t):
+        return False
+    if releases:
+        return any(r in t for r in releases)
+    return "1080p" in t and "web-dl" in t and re.search(r"mrhulk|marco", t) is not None
 
 
 def bt4g_hashes():
@@ -132,6 +152,7 @@ BOARDS = [
     {
         "b_id": "tdrama", "name": "드라마",
         "keywords": os.path.join(SCRIPT_DIR, "drama_keywords.txt"),
+        "load_keywords": load_drama_keywords,
         "rss": os.path.join(XML_DIR, "tfreeca_drama_rss.xml"),
         "cache": os.path.join(XML_DIR, "tfreeca_drama_items.json"),
         "feed_title": "티프리카 드라마 1080p WEB-DL",
@@ -171,7 +192,7 @@ def episode_key(keyword, title):
 
 def run_board(board):
     b_id = board["b_id"]
-    keywords = load_keywords(board["keywords"])
+    keywords = board.get("load_keywords", load_keywords)(board["keywords"])
     cache = load_cache(board["cache"])  # 글 id → {title, btih, pub[, ep, skip]}
     if keywords is not None and not keywords:
         log(f"[{board['name']}] 키워드 없음, 건너뜀")
@@ -199,11 +220,19 @@ def run_board(board):
     new_count = 0
     # 목록은 최신 글이 위 → 오래된 글부터 봐야 같은 회차 중 먼저 올라온 릴을 받는다
     for post_id, title in reversed(posts):
-        if post_id in cache or not board["release_ok"](title):
+        if post_id in cache:
             continue
-        keyword = matched_keyword(title, keywords)
-        if not keyword:
-            continue
+        if board.get("load_keywords"):
+            # 드라마: 키워드마다 받을 릴이 다르다
+            t = normalize(title)
+            hit = next(((k, rels) for k, rels in keywords if k in t), None)
+            if not hit or not board["release_ok"](title, hit[1]):
+                continue
+            keyword = hit[0]
+        else:
+            keyword = matched_keyword(title, keywords)
+            if not keyword or not board["release_ok"](title):
+                continue
         ep = episode_key(keyword, title) if board["one_per_episode"] else None
         if ep and ep in taken_eps:
             continue
