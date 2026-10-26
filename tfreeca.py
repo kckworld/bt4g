@@ -91,6 +91,17 @@ def wanted(title, keywords):
     return True
 
 
+def bt4g_hashes():
+    """BT4G가 먼저 잡아서 이미 받은 토렌트. 받고 나면 qBittorrent 목록에서 지워지므로
+    같은 해시를 티프리카 피드에 또 내면 다시 받는다 (BT4G를 켰을 때만 해당)."""
+    path = os.path.join(XML_DIR, "bt4g_merged_rss.xml")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return {h.lower() for h in re.findall(r"btih:([0-9A-Fa-f]{40})", f.read())}
+    except OSError:
+        return set()
+
+
 def load_cache():
     try:
         with open(CACHE_PATH, encoding="utf-8") as f:
@@ -118,6 +129,7 @@ def main():
         posts.extend(rows)
         time.sleep(1)
 
+    from_bt4g = bt4g_hashes()
     new_count = 0
     for post_id, title in posts:
         if post_id in cache or not wanted(title, keywords):
@@ -130,6 +142,12 @@ def main():
         m = MAGNET_RE.search(body)
         if not m:
             log(f"id={post_id} {title!r} 마그넷 없음, 건너뜀")
+            continue
+        if m.group(1).lower() in from_bt4g:
+            # 캐시에는 넣어서(RSS에는 안 냄) 다음 실행 때 상세 페이지를 또 읽지 않게 한다
+            cache[post_id] = {"title": title, "btih": m.group(1).lower(),
+                              "pub": datetime.now(KST).isoformat(), "skip": "bt4g"}
+            log(f"id={post_id} {title} BT4G로 이미 받음, 건너뜀")
             continue
         reg = REGDATE_RE.search(body)
         pub = (
@@ -150,6 +168,8 @@ def main():
     fg.description("bt4g_keywords.txt 키워드와 맞는 티프리카 예능 게시판 글")
     # feedgen은 add_entry를 앞에 끼워 넣으므로 오래된 것부터 넣어야 최신이 위로 감
     for post_id, v in sorted(cache.items(), key=lambda kv: kv[1]["pub"]):
+        if v.get("skip"):
+            continue
         fe = fg.add_entry()
         fe.guid(f"tfreeca-tent-{post_id}", permalink=False)
         fe.title(v["title"])

@@ -37,9 +37,10 @@ echo "$(bt4g_ts) 티프리카 RSS 시작"
 python "$SCRIPT_DIR/tfreeca.py" || echo "$(bt4g_ts) tfreeca.py 실행 중 오류 발생"
 
 # BT4G는 같은 NEXT 토렌트를 몇 시간 늦게 잡고, 대량 검색 시 응답이 끊겨서 기본은 끔.
-# 다시 쓰려면 .env에 BT4G_ENABLE=1 (qBittorrent 규칙에도 BT4G 피드를 다시 넣어야 함)
-if [ "${BT4G_ENABLE:-0}" != "1" ]; then
-    echo "$(bt4g_ts) BT4G 꺼짐 (BT4G_ENABLE=1 이면 실행)"
+# Media Router "예능 키워드" 화면의 스위치가 아래 파일을 만들고 qBittorrent 규칙에 BT4G 피드를 넣는다.
+BT4G_FLAG="/volume1/docker/media-router/data/bt4g_enabled"
+if [ ! -f "$BT4G_FLAG" ] && [ "${BT4G_ENABLE:-0}" != "1" ]; then
+    echo "$(bt4g_ts) BT4G 꺼짐 (Media Router 예능 키워드 화면에서 켤 수 있음)"
     exit 0
 fi
 

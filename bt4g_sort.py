@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import xml.etree.ElementTree as ET
@@ -30,6 +31,33 @@ def extract_btih(link):
     m = re.search(r'btih:([a-fA-F0-9]+)', link)
     return m.group(1).lower() if m else link
 
+MAX_AIR_AGE_DAYS = 7
+AIRDATE_RE = re.compile(r'\.(\d{6})\.720p')
+TFREECA_CACHE = os.path.join(XML_DIR, 'tfreeca_items.json')
+
+
+def tfreeca_hashes():
+    """티프리카 피드로 이미 받은 토렌트. 받고 나면 qBittorrent 목록에서 지워지므로
+    몇 시간 늦게 BT4G에 같은 해시가 나오면 다시 받게 된다 → 빼고 낸다."""
+    try:
+        with open(TFREECA_CACHE, encoding='utf-8') as f:
+            return {v['btih'] for v in json.load(f).values() if not v.get('skip')}
+    except (OSError, ValueError):
+        return set()
+
+
+def too_old_airdate(title):
+    """'미운 우리 새끼.E509.260823.720p-NEXT'처럼 옛날 회차가 다시 올라온 것"""
+    m = AIRDATE_RE.search(title)
+    if not m:
+        return False
+    try:
+        air = datetime.strptime(m.group(1), '%y%m%d')
+    except ValueError:
+        return False
+    return datetime.now() - air > timedelta(days=MAX_AIR_AGE_DAYS)
+
+
 def filter_and_sort_recent_items(input_path, output_path):
     tree = ET.parse(input_path)
     root = tree.getroot()
@@ -37,7 +65,7 @@ def filter_and_sort_recent_items(input_path, output_path):
     channel = root.find('channel')
     items = channel.findall('item')
 
-    seen_hashes = set()
+    seen_hashes = tfreeca_hashes()
     recent_items = []
     for item in items:
         pubdate_text = item.findtext('pubDate', default='')
@@ -45,7 +73,7 @@ def filter_and_sort_recent_items(input_path, output_path):
         if pubdate and pubdate >= THREE_MONTHS_AGO:
             link = item.findtext('link', '')
             btih = extract_btih(link)
-            if btih in seen_hashes:
+            if btih in seen_hashes or too_old_airdate(item.findtext('title', '')):
                 continue
             seen_hashes.add(btih)
             recent_items.append((pubdate, item))
